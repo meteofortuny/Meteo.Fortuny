@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+    <meta charset="UTF-8">
+    <title>Temperatura IS Fortuny Succursale</title>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 40px; margin: 0; }
+        h1 { font-weight: 300; margin-bottom: 30px; }
+        .dashboard { display: flex; justify-content: center; gap: 40px; margin-bottom: 30px; flex-wrap: wrap; }
+        .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 25px; width: 240px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        .card h2 { margin: 0 0 10px 0; font-size: 1.1rem; color: #8b949e; font-weight: 400; text-transform: uppercase; letter-spacing: 1px;}
+        .value { font-size: 3.5rem; font-weight: bold; color: #58a6ff; text-shadow: 0 0 15px rgba(88, 166, 255, 0.3); }
+        .unit { font-size: 1.5rem; color: #8b949e; font-weight: normal; margin-left: 5px;}
+        .value.hum { color: #3fb950; text-shadow: 0 0 15px rgba(63, 185, 80, 0.3); }
+        .minmax-container { display: flex; justify-content: space-around; margin-top: 15px; border-top: 1px solid #30363d; padding-top: 10px; font-size: 0.9rem; color: #8b949e; }
+        .min-val { color: #58a6ff; font-weight: bold; }
+        .max-val { color: #f85149; font-weight: bold; }
+        .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 0 auto 30px auto; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+    </style>
+</head>
+<body>
+   
+    <h2>Istituto M.Fortuny</h2>
+    <br>
+    <h1>Temperatura Istituto Succursale</h1>
+    
+    <div class="dashboard">
+        <div class="card">
+            <h2>Temperatura</h2>
+            <div id="temp-val" class="value">--<span class="unit">°C</span></div>
+            <div class="minmax-container">
+                <div>Min: <span id="temp-min" class="min-val">--</span>°C</div>
+                <div>Max: <span id="temp-max" class="max-val">--</span>°C</div>
+            </div>
+        </div>
+        <div class="card">
+            <h2>Umidità</h2>
+            <div id="hum-val" class="value hum">--<span class="unit">%</span></div>
+        </div>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="historyChart" style="width:100%; height:280px;"></canvas>
+    </div>
+    
+    <br>
+    <h4>Marca, Brozzoni, 3°J</h4>
+
+    <script>
+        // --- INIZIALIZZAZIONE FIREBASE ---
+        const firebaseConfig = {
+            databaseURL: "https://meteo-fortuny-default-rtdb.europe-west1.firebasedatabase.app/corrente.json" // <--- INCOLLA QUI IL TUO URL DI FIREBASE
+        };
+        firebase.initializeApp(firebaseConfig);
+        const database = firebase.database();
+
+        // Elementi DOM
+        const tempVal = document.getElementById('temp-val');
+        const humVal = document.getElementById('hum-val');
+        const tempMinDoc = document.getElementById('temp-min');
+        const tempMaxDoc = document.getElementById('temp-max');
+
+        let masterLabels = [];
+        let masterTemp = [];
+        let masterHum = [];
+        let minTemp = null;
+        let maxTemp = null;
+
+        // Inizializzazione Grafico
+        const ctx = document.getElementById('historyChart').getContext('2d');
+        const historyChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Temperatura (°C)', data: [], borderColor: '#58a6ff', backgroundColor: 'rgba(88, 166, 255, 0.1)', borderWidth: 2, tension: 0.3, yAxisID: 'yTemp' },
+                    { label: 'Umidità (%)', data: [], borderColor: '#3fb950', backgroundColor: 'rgba(63, 185, 80, 0.1)', borderWidth: 2, tension: 0.3, yAxisID: 'yHum' }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { grid: { color: '#21262d' }, ticks: { color: '#8b949e' } },
+                    yTemp: { type: 'linear', display: true, position: 'left', grid: { color: '#30363d' }, ticks: { color: '#8b949e' } },
+                    yHum: { type: 'linear', display: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#8b949e' } }
+                },
+                plugins: { legend: { labels: { color: '#c9d1d9' } } }
+            }
+        });
+
+        // 1. ASCOLTO IN TEMPO REALE (Nodo 'corrente')
+        database.ref('corrente').on('value', (snapshot) => {
+            const data = snapshot.val();
+            if(data) {
+                const t = parseFloat(data.temperatura);
+                const h = parseFloat(data.umidita);
+
+                tempVal.innerHTML = t.toFixed(1) + '<span class="unit">°C</span>';
+                humVal.innerHTML = h.toFixed(0) + '<span class="unit">%</span>';
+                
+                if(minTemp === null || t < minTemp) { minTemp = t; tempMinDoc.innerText = minTemp.toFixed(1); }
+                if(maxTemp === null || t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
+            }
+        });
+
+        // 2. CARICAMENTO STORICO ALL'AVVIO (Prende gli ultimi 288 punti, circa 24 ore se salvati ogni 5 min)
+        database.ref('storico').limitToLast(288).once('value', (snapshot) => {
+            masterLabels = [];
+            masterTemp = [];
+            masterHum = [];
+            
+            snapshot.forEach((childSnapshot) => {
+                const punto = childSnapshot.val();
+                masterLabels.push(punto.ora);
+                masterTemp.push(punto.temperatura);
+                masterHum.push(punto.umidita);
+            });
+
+            historyChart.data.labels = masterLabels;
+            historyChart.data.datasets[0].data = masterTemp;
+            historyChart.data.datasets[1].data = masterHum;
+            historyChart.update();
+        });
+
+        // Ascolta se vengono aggiunti nuovi punti storici mentre la pagina è aperta
+        database.ref('storico').limitToLast(1).on('child_added', (snapshot) => {
+            const punto = snapshot.val();
+            // Evita duplicati all'avvio controllando l'ultimo inserito
+            if(masterLabels.length === 0 || masterLabels[masterLabels.length - 1] !== punto.ora) {
+                masterLabels.push(punto.ora);
+                masterTemp.push(punto.temperatura);
+                masterHum.push(punto.umidita);
+
+                if(masterLabels.length > 288) {
+                    masterLabels.shift();
+                    masterTemp.shift();
+                    masterHum.shift();
+                }
+                historyChart.update();
+            }
+        });
+    </script>
+</body>
+</html>
