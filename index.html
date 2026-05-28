@@ -19,8 +19,23 @@
         .minmax-container { display: flex; justify-content: space-around; margin-top: 15px; border-top: 1px solid #30363d; padding-top: 10px; font-size: 0.9rem; color: #8b949e; }
         .min-val { color: #58a6ff; font-weight: bold; }
         .max-val { color: #f85149; font-weight: bold; }
-        .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 0 auto 20px auto; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
         
+        /* Contenitori Grafico e Log */
+        .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 0 auto 20px auto; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+        .controls { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
+        
+        /* Pulsanti in stile GitHub Dark */
+        .btn { background-color: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s; }
+        .btn:hover { background-color: #30363d; border-color: #8b949e; }
+        .btn.active { background-color: #1f6feb; border-color: #388bfd; color: #ffffff; }
+        
+        /* Pannello Log */
+        .log-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 20px auto; padding: 15px; text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: none; }
+        .log-container h3 { margin: 0 0 10px 0; font-size: 1rem; color: #8b949e; font-weight: 400; }
+        .log-list { max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #7d8590; padding: 8px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d; }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid #21262d; }
+        .log-entry:last-child { border-bottom: none; }
+
         @keyframes beat {
             to { transform: scale(1.25); }
         }
@@ -47,17 +62,29 @@
     </div>
 
     <div class="chart-container">
-        <canvas id="historyChart" style="width:100%; height:280px;"></canvas>
+        <div class="controls">
+            <button id="btn-24h" class="btn active" onclick="cambiaVisualizzazione('24h')">Ultime 24 Ore</button>
+            <button id="btn-20m" class="btn" onclick="cambiaVisualizzazione('20m')">Ultime 20 Misure</button>
+            <button id="btn-log" class="btn" onclick="toggleLog()">Mostra Console Log</button>
+        </div>
+        <div style="position: relative; height: 280px; width: 100%;">
+            <canvas id="historyChart"></canvas>
+        </div>
     </div>
     
-    <p style="color: #8b949e; font-size: 0.95rem; margin-top: 15px; letter-spacing: 0.5px;">
+    <div id="log-panel" class="log-container">
+        <h3>Console Log dei Dati (In tempo reale)</h3>
+        <div id="log-list" class="log-list"></div>
+    </div>
+    
+    <p style="color: #8b949e; font-size: 0.95rem; margin-top: 25px; letter-spacing: 0.5px;">
         Made with <span style="display: inline-block; animation: beat 0.4s infinite alternate; transform-origin: center;">❤️</span> by F. Marca, M. Brozzoni, 3°J
     </p>
 
     <script>
         // --- INIZIALIZZAZIONE FIREBASE ---
         const firebaseConfig = {
-            databaseURL: "https://meteo-fortuny-default-rtdb.europe-west1.firebasedatabase.app/corrente.json" // <--- INCOLLA QUI IL TUO URL DI FIREBASE
+            databaseURL: "https://meteo-fortuny-default-rtdb.europe-west1.firebasedatabase.app/"
         };
         firebase.initializeApp(firebaseConfig);
         const database = firebase.database();
@@ -67,14 +94,19 @@
         const humVal = document.getElementById('hum-val');
         const tempMinDoc = document.getElementById('temp-min');
         const tempMaxDoc = document.getElementById('temp-max');
+        const logList = document.getElementById('log-list');
+        const logPanel = document.getElementById('log-panel');
 
+        // Memoria dati di sistema
         let masterLabels = [];
         let masterTemp = [];
         let masterHum = [];
         let minTemp = null;
         let maxTemp = null;
+        let vistaCorrente = '24h'; 
+        let caricamentoInizialeCompletato = false;
 
-        // Inizializzazione Grafico
+        // Inizializzazione Grafico Chart.js
         const ctx = document.getElementById('historyChart').getContext('2d');
         const historyChart = new Chart(ctx, {
             type: 'line',
@@ -97,7 +129,55 @@
             }
         });
 
-        // 1. ASCOLTO IN TEMPO REALE (Nodo 'corrente')
+        // Funzione logica per aggiornare lo schermo in base al filtro selezionato
+        function aggiornaGrafico() {
+            if (vistaCorrente === '20m') {
+                historyChart.data.labels = masterLabels.slice(-20);
+                historyChart.data.datasets[0].data = masterTemp.slice(-20);
+                historyChart.data.datasets[1].data = masterHum.slice(-20);
+            } else {
+                historyChart.data.labels = masterLabels;
+                historyChart.data.datasets[0].data = masterTemp;
+                historyChart.data.datasets[1].data = masterHum;
+            }
+            historyChart.update();
+        }
+
+        // Gestione click pulsanti filtri
+        function cambiaVisualizzazione(tipo) {
+            vistaCorrente = tipo;
+            document.getElementById('btn-24h').classList.toggle('active', tipo === '24h');
+            document.getElementById('btn-20m').classList.toggle('active', tipo === '20m');
+            aggiornaGrafico();
+        }
+
+        // Mostra/Nascondi la console dei log
+        function toggleLog() {
+            const btn = document.getElementById('btn-log');
+            if (logPanel.style.display === 'none' || logPanel.style.display === '') {
+                logPanel.style.display = 'block';
+                btn.classList.add('active');
+                btn.innerText = "Nascondi Console Log";
+            } else {
+                logPanel.style.display = 'none';
+                btn.classList.remove('active');
+                btn.innerText = "Mostra Console Log";
+            }
+        }
+
+        // Aggiunge riga testuale nel pannello dei log
+        function aggiungiRigaLog(ora, t, h, tipo) {
+            const entry = document.createElement('div');
+            entry.className = 'log-entry';
+            entry.innerHTML = `<span style="color: #58a6ff;">[${ora}]</span> <span style="color: #8b949e;">${tipo}:</span> Temp = <span style="color: #ffa657;">${t}°C</span> | Umidità = <span style="color: #56e36e;">${h}%</span>`;
+            logList.insertBefore(entry, logList.firstChild);
+            
+            if (logList.children.length > 40) {
+                logList.removeChild(logList.lastChild);
+            }
+        }
+
+        // 1. ASCOLTO IN TEMPO REALE (Box numerici in alto)
         database.ref('corrente').on('value', (snapshot) => {
             const data = snapshot.val();
             if(data) {
@@ -109,10 +189,14 @@
                 
                 if(minTemp === null || t < minTemp) { minTemp = t; tempMinDoc.innerText = minTemp.toFixed(1); }
                 if(maxTemp === null || t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
+                
+                if(caricamentoInizialeCompletato) {
+                    aggiungiRigaLog(data.ora, t.toFixed(1), h.toFixed(0), "LIVE STREAM");
+                }
             }
         });
 
-        // 2. CARICAMENTO STORICO ALL'AVVIO (Prende gli ultimi 288 punti, circa 24 ore se salvati ogni 5 min)
+        // 2. CARICAMENTO STORICO ALL'AVVIO (Fino a 288 misure)
         database.ref('storico').limitToLast(288).once('value', (snapshot) => {
             masterLabels = [];
             masterTemp = [];
@@ -123,16 +207,17 @@
                 masterLabels.push(punto.ora);
                 masterTemp.push(punto.temperatura);
                 masterHum.push(punto.umidita);
+                aggiungiRigaLog(punto.ora, parseFloat(punto.temperatura).toFixed(1), parseFloat(punto.umidita).toFixed(0), "ARCHIVIO");
             });
 
-            historyChart.data.labels = masterLabels;
-            historyChart.data.datasets[0].data = masterTemp;
-            historyChart.data.datasets[1].data = masterHum;
-            historyChart.update();
+            caricamentoInizialeCompletato = true;
+            aggiornaGrafico();
         });
 
-        // Ascolta se vengono aggiunti nuovi punti storici mentre la pagina è aperta
+        // Ascolta l'aggiunta di nuovi punti storici
         database.ref('storico').limitToLast(1).on('child_added', (snapshot) => {
+            if (!caricamentoInizialeCompletato) return;
+            
             const punto = snapshot.val();
             if(masterLabels.length === 0 || masterLabels[masterLabels.length - 1] !== punto.ora) {
                 masterLabels.push(punto.ora);
@@ -144,7 +229,7 @@
                     masterTemp.shift();
                     masterHum.shift();
                 }
-                historyChart.update();
+                aggiornaGrafico();
             }
         });
     </script>
