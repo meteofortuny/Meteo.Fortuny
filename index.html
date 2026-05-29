@@ -104,11 +104,9 @@
         let minTemp = null;
         let maxTemp = null;
         let vistaCorrente = '24h'; 
-        let caricamentoInizialeCompletato = false;
 
-        // Inizializzazione Grafico Chart.js
-        const ctx = document.getElementById('historyChart').getContext('2d');
-        const historyChart = new Chart(ctx, {
+        // Inizializzazione Grafico Chart.js (Passiamo l'ID stringa direttamente)
+        const historyChart = new Chart('historyChart', {
             type: 'line',
             data: {
                 labels: [],
@@ -172,7 +170,7 @@
             entry.innerHTML = `<span style="color: #58a6ff;">[${ora}]</span> <span style="color: #8b949e;">${tipo}:</span> Temp = <span style="color: #ffa657;">${t}°C</span> | Umidità = <span style="color: #56e36e;">${h}%</span>`;
             logList.insertBefore(entry, logList.firstChild);
             
-            if (logList.children.length > 40) {
+            if (logList.children.length > 60) {
                 logList.removeChild(logList.lastChild);
             }
         }
@@ -190,47 +188,35 @@
                 if(minTemp === null || t < minTemp) { minTemp = t; tempMinDoc.innerText = minTemp.toFixed(1); }
                 if(maxTemp === null || t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
                 
-                if(caricamentoInizialeCompletato) {
-                    aggiungiRigaLog(data.ora, t.toFixed(1), h.toFixed(0), "LIVE STREAM");
-                }
+                aggiungiRigaLog(data.ora, t.toFixed(1), h.toFixed(0), "LIVE STREAM");
             }
         });
 
-        // 2. CARICAMENTO STORICO ALL'AVVIO (Fino a 288 misure)
-        database.ref('storico').limitToLast(288).once('value', (snapshot) => {
+        // 2. GESTIONE UNIFICATA DELLO STORICO (Caricamento iniziale + aggiornamenti Realtime delle 24h)
+        database.ref('storico').limitToLast(288).on('value', (snapshot) => {
             masterLabels = [];
             masterTemp = [];
             masterHum = [];
             
             snapshot.forEach((childSnapshot) => {
                 const punto = childSnapshot.val();
-                masterLabels.push(punto.ora);
-                masterTemp.push(punto.temperatura);
-                masterHum.push(punto.umidita);
-                aggiungiRigaLog(punto.ora, parseFloat(punto.temperatura).toFixed(1), parseFloat(punto.umidita).toFixed(0), "ARCHIVIO");
+                if (punto) {
+                    const t_parsed = parseFloat(punto.temperatura);
+                    const h_parsed = parseFloat(punto.umidita);
+
+                    masterLabels.push(punto.ora);
+                    masterTemp.push(t_parsed); // Adesso passiamo numeri reali a Chart.js
+                    masterHum.push(h_parsed);
+                }
             });
 
-            caricamentoInizialeCompletato = true;
-            aggiornaGrafico();
-        });
-
-        // Ascolta l'aggiunta di nuovi punti storici
-        database.ref('storico').limitToLast(1).on('child_added', (snapshot) => {
-            if (!caricamentoInizialeCompletato) return;
-            
-            const punto = snapshot.val();
-            if(masterLabels.length === 0 || masterLabels[masterLabels.length - 1] !== punto.ora) {
-                masterLabels.push(punto.ora);
-                masterTemp.push(punto.temperatura);
-                masterHum.push(punto.umidita);
-
-                if(masterLabels.length > 288) {
-                    masterLabels.shift();
-                    masterTemp.shift();
-                    masterHum.shift();
-                }
-                aggiornaGrafico();
+            // Mostriamo l'ultimo punto arrivato nell'interfaccia di log dell'archivio
+            if(masterLabels.length > 0) {
+                const lastIdx = masterLabels.length - 1;
+                aggiungiRigaLog(masterLabels[lastIdx], masterTemp[lastIdx].toFixed(1), masterHum[lastIdx].toFixed(0), "ARCHIVIO");
             }
+
+            aggiornaGrafico();
         });
     </script>
 </body>
