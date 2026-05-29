@@ -55,8 +55,8 @@
             <h2>Temperatura</h2>
             <div id="temp-val" class="value">--<span class="unit">°C</span></div>
             <div class="minmax-container">
-                <div>Min: <span id="temp-min" class="min-val">--</span>°C</div>
-                <div>Max: <span id="temp-max" class="max-val">--</span>°C</div>
+                <div>Min (24h): <span id="temp-min" class="min-val">--</span>°C</div>
+                <div>Max (24h): <span id="temp-max" class="max-val">--</span>°C</div>
             </div>
         </div>
         <div class="card">
@@ -68,7 +68,7 @@
     <div class="chart-container">
         <div class="controls">
             <button id="btn-24h" class="btn active" onclick="cambiaVisualizzazione('24h')">Ultime 24 Ore</button>
-            <button id="btn-20m" class="btn" onclick="cambiaVisualizzazione('20m')">Ultime 20 Misure</button>
+            <button id="btn-1h" class="btn" onclick="cambiaVisualizzazione('1h')">Ultima Ora</button>
             <button id="btn-log" class="btn" onclick="toggleLog()">Mostra Console Log</button>
         </div>
         <div style="position: relative; height: 280px; width: 100%;">
@@ -103,7 +103,7 @@
         const debugStatus = document.getElementById('debug-status');
         const debugCount = document.getElementById('debug-count');
 
-        // Memoria dati
+        // Memoria interna dati
         let masterLabels = [];
         let masterTemp = [];
         let masterHum = [];
@@ -134,12 +134,15 @@
             }
         });
 
+        // Gestione filtri temporali sul grafico (Adattati a step di 10 secondi)
         function aggiornaGrafico() {
-            if (vistaCorrente === '20m') {
-                historyChart.data.labels = masterLabels.slice(-20);
-                historyChart.data.datasets[0].data = masterTemp.slice(-20);
-                historyChart.data.datasets[1].data = masterHum.slice(-20);
+            if (vistaCorrente === '1h') {
+                // Prende solo gli ultimi 360 punti (10 secondi * 360 = 1 ora)
+                historyChart.data.labels = masterLabels.slice(-360);
+                historyChart.data.datasets[0].data = masterTemp.slice(-360);
+                historyChart.data.datasets[1].data = masterHum.slice(-360);
             } else {
+                // Mostra tutto l'archivio delle 24 ore (fino a 8640 punti)
                 historyChart.data.labels = masterLabels;
                 historyChart.data.datasets[0].data = masterTemp;
                 historyChart.data.datasets[1].data = masterHum;
@@ -150,7 +153,7 @@
         function cambiaVisualizzazione(tipo) {
             vistaCorrente = tipo;
             document.getElementById('btn-24h').classList.toggle('active', tipo === '24h');
-            document.getElementById('btn-20m').classList.toggle('active', tipo === '20m');
+            document.getElementById('btn-1h').classList.toggle('active', tipo === '1h');
             aggiornaGrafico();
         }
 
@@ -172,7 +175,7 @@
             if (logList.children.length > 50) logList.removeChild(logList.lastChild);
         }
 
-        // 1. ASCOLTO IN TEMPO REALE (Rinfresca i box e lo stato del server)
+        // 1. ASCOLTO TEMPO REALE (Aggiorna istantaneamente i grandi box numerici)
         database.ref('corrente').on('value', (snapshot) => {
             const data = snapshot.val();
             if(data) {
@@ -185,8 +188,9 @@
                 tempVal.innerHTML = t.toFixed(1) + '<span class="unit">°C</span>';
                 humVal.innerHTML = h.toFixed(0) + '<span class="unit">%</span>';
                 
-                if(minTemp === null || t < minTemp) { minTemp = t; tempMinDoc.innerText = minTemp.toFixed(1); }
-                if(maxTemp === null || t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
+                // Se arriva una variazione repentina in tempo reale che supera i minimi storici, aggiorna i box al volo
+                if(minTemp !== null && t < minTemp) { minTemp = t; tempMinDoc.innerText = minTemp.toFixed(1); }
+                if(maxTemp !== null && t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
                 
                 aggiungiRigaLog(data.ora, t.toFixed(1), h.toFixed(0), "LIVE STREAM");
             } else {
@@ -194,8 +198,8 @@
             }
         });
 
-        // 2. ASCOLTO STORICO UNIFICATO
-        database.ref('storico').limitToLast(288).on('value', (snapshot) => {
+        // 2. ASCOLTO ARCHIVIO STORICO (Scarica gli ultimi 8640 punti = 24 ore a intervalli di 10s)
+        database.ref('storico').limitToLast(8640).on('value', (snapshot) => {
             masterLabels = [];
             masterTemp = [];
             masterHum = [];
@@ -212,7 +216,14 @@
                     }
                 });
 
-                // Stampa l'ultimo punto archiviato nel pannello log
+                // Calcolo matematico automatico della minima e della massima reali sull'intero archivio delle 24 ore
+                if (masterTemp.length > 0) {
+                    minTemp = Math.min(...masterTemp);
+                    maxTemp = Math.max(...masterTemp);
+                    tempMinDoc.innerText = minTemp.toFixed(1);
+                    tempMaxDoc.innerText = maxTemp.toFixed(1);
+                }
+
                 const last = masterLabels.length - 1;
                 if(last >= 0) {
                     aggiungiRigaLog(masterLabels[last], masterTemp[last].toFixed(1), masterHum[last].toFixed(0), "ARCHIVIO");
