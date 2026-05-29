@@ -5,11 +5,16 @@
     <title>Temperatura IS Fortuny Succursale</title>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
     <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+    
     <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background-color: #0d1117; color: #c9d1d9; text-align: center; padding: 25px 40px; margin: 0; }
-        h1 { font-weight: 300; margin-bottom: 25px; margin-top: 10px; }
+        h1 { font-weight: 300; margin-bottom: 10px; margin-top: 10px; }
         h2.istituto { margin-bottom: 5px; color: #8b949e; font-weight: 400; }
+        
+        /* Pannello di Diagnostica */
+        .debug-bar { background: #161b22; border: 1px solid #30363d; display: inline-block; padding: 6px 16px; border-radius: 20px; font-size: 0.85rem; margin-bottom: 25px; color: #8b949e; }
+        
         .dashboard { display: flex; justify-content: center; gap: 40px; margin-bottom: 25px; flex-wrap: wrap; }
         .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 25px; width: 240px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
         .card h2 { margin: 0 0 10px 0; font-size: 1.1rem; color: #8b949e; font-weight: 400; text-transform: uppercase; letter-spacing: 1px;}
@@ -20,31 +25,30 @@
         .min-val { color: #58a6ff; font-weight: bold; }
         .max-val { color: #f85149; font-weight: bold; }
         
-        /* Contenitori Grafico e Log */
         .chart-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 0 auto 20px auto; padding: 20px; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
         .controls { margin-bottom: 20px; display: flex; justify-content: center; gap: 10px; }
         
-        /* Pulsanti in stile GitHub Dark */
         .btn { background-color: #21262d; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 14px; border-radius: 6px; font-size: 0.85rem; font-weight: 500; cursor: pointer; transition: background 0.2s; }
         .btn:hover { background-color: #30363d; border-color: #8b949e; }
         .btn.active { background-color: #1f6feb; border-color: #388bfd; color: #ffffff; }
         
-        /* Pannello Log */
         .log-container { background: #161b22; border: 1px solid #30363d; border-radius: 12px; max-width: 700px; margin: 20px auto; padding: 15px; text-align: left; box-shadow: 0 4px 20px rgba(0,0,0,0.5); display: none; }
         .log-container h3 { margin: 0 0 10px 0; font-size: 1rem; color: #8b949e; font-weight: 400; }
         .log-list { max-height: 120px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; color: #7d8590; padding: 8px; background: #0d1117; border-radius: 6px; border: 1px solid #30363d; }
         .log-entry { padding: 3px 0; border-bottom: 1px solid #21262d; }
-        .log-entry:last-child { border-bottom: none; }
 
-        @keyframes beat {
-            to { transform: scale(1.25); }
-        }
+        @keyframes beat { to { transform: scale(1.25); } }
     </style>
 </head>
 <body>
    
     <h2 class="istituto">Istituto M.Fortuny</h2>
     <h1>Temperatura Istituto Succursale</h1>
+    
+    <div class="debug-bar">
+        Stato Database: <span id="debug-status" style="color: #ffa657; font-weight: bold;">In connessione...</span> | 
+        Punti in Archivio: <span id="debug-count" style="color: #58a6ff; font-weight: bold;">0</span>
+    </div>
     
     <div class="dashboard">
         <div class="card">
@@ -82,7 +86,7 @@
     </p>
 
     <script>
-        // --- INIZIALIZZAZIONE FIREBASE ---
+        // --- CONFIGURAZIONE FIREBASE ---
         const firebaseConfig = {
             databaseURL: "https://meteo-fortuny-default-rtdb.europe-west1.firebasedatabase.app/"
         };
@@ -96,8 +100,10 @@
         const tempMaxDoc = document.getElementById('temp-max');
         const logList = document.getElementById('log-list');
         const logPanel = document.getElementById('log-panel');
+        const debugStatus = document.getElementById('debug-status');
+        const debugCount = document.getElementById('debug-count');
 
-        // Memoria dati di sistema
+        // Memoria dati
         let masterLabels = [];
         let masterTemp = [];
         let masterHum = [];
@@ -105,8 +111,9 @@
         let maxTemp = null;
         let vistaCorrente = '24h'; 
 
-        // Inizializzazione Grafico Chart.js (Passiamo l'ID stringa direttamente)
-        const historyChart = new Chart('historyChart', {
+        // Inizializzazione sicura del Canvas per Chart.js
+        const ctx = document.getElementById('historyChart');
+        const historyChart = new Chart(ctx, {
             type: 'line',
             data: {
                 labels: [],
@@ -127,7 +134,6 @@
             }
         });
 
-        // Funzione logica per aggiornare lo schermo in base al filtro selezionato
         function aggiornaGrafico() {
             if (vistaCorrente === '20m') {
                 historyChart.data.labels = masterLabels.slice(-20);
@@ -141,7 +147,6 @@
             historyChart.update();
         }
 
-        // Gestione click pulsanti filtri
         function cambiaVisualizzazione(tipo) {
             vistaCorrente = tipo;
             document.getElementById('btn-24h').classList.toggle('active', tipo === '24h');
@@ -149,36 +154,31 @@
             aggiornaGrafico();
         }
 
-        // Mostra/Nascondi la console dei log
         function toggleLog() {
-            const btn = document.getElementById('btn-log');
             if (logPanel.style.display === 'none' || logPanel.style.display === '') {
                 logPanel.style.display = 'block';
-                btn.classList.add('active');
-                btn.innerText = "Nascondi Console Log";
+                document.getElementById('btn-log').classList.add('active');
             } else {
                 logPanel.style.display = 'none';
-                btn.classList.remove('active');
-                btn.innerText = "Mostra Console Log";
+                document.getElementById('btn-log').classList.remove('active');
             }
         }
 
-        // Aggiunge riga testuale nel pannello dei log
         function aggiungiRigaLog(ora, t, h, tipo) {
             const entry = document.createElement('div');
             entry.className = 'log-entry';
-            entry.innerHTML = `<span style="color: #58a6ff;">[${ora}]</span> <span style="color: #8b949e;">${tipo}:</span> Temp = <span style="color: #ffa657;">${t}°C</span> | Umidità = <span style="color: #56e36e;">${h}%</span>`;
+            entry.innerHTML = `<span style="color: #58a6ff;">[${ora}]</span> <span style="color: #8b949e;">${tipo}:</span> T = <span style="color: #ffa657;">${t}°C</span> | U = <span style="color: #56e36e;">${h}%</span>`;
             logList.insertBefore(entry, logList.firstChild);
-            
-            if (logList.children.length > 60) {
-                logList.removeChild(logList.lastChild);
-            }
+            if (logList.children.length > 50) logList.removeChild(logList.lastChild);
         }
 
-        // 1. ASCOLTO IN TEMPO REALE (Box numerici in alto)
+        // 1. ASCOLTO IN TEMPO REALE (Rinfresca i box e lo stato del server)
         database.ref('corrente').on('value', (snapshot) => {
             const data = snapshot.val();
             if(data) {
+                debugStatus.innerText = "ONLINE (Ricezione Live)";
+                debugStatus.style.color = "#3fb950";
+                
                 const t = parseFloat(data.temperatura);
                 const h = parseFloat(data.umidita);
 
@@ -189,33 +189,37 @@
                 if(maxTemp === null || t > maxTemp) { maxTemp = t; tempMaxDoc.innerText = maxTemp.toFixed(1); }
                 
                 aggiungiRigaLog(data.ora, t.toFixed(1), h.toFixed(0), "LIVE STREAM");
+            } else {
+                debugStatus.innerText = "Nessun dato in 'corrente'";
             }
         });
 
-        // 2. GESTIONE UNIFICATA DELLO STORICO (Caricamento iniziale + aggiornamenti Realtime delle 24h)
+        // 2. ASCOLTO STORICO UNIFICATO
         database.ref('storico').limitToLast(288).on('value', (snapshot) => {
             masterLabels = [];
             masterTemp = [];
             masterHum = [];
             
-            snapshot.forEach((childSnapshot) => {
-                const punto = childSnapshot.val();
-                if (punto) {
-                    const t_parsed = parseFloat(punto.temperatura);
-                    const h_parsed = parseFloat(punto.umidita);
+            if (snapshot.exists()) {
+                debugCount.innerText = snapshot.numChildren();
+                
+                snapshot.forEach((childSnapshot) => {
+                    const punto = childSnapshot.val();
+                    if (punto && punto.temperatura !== undefined) {
+                        masterLabels.push(punto.ora);
+                        masterTemp.push(parseFloat(punto.temperatura));
+                        masterHum.push(parseFloat(punto.umidita));
+                    }
+                });
 
-                    masterLabels.push(punto.ora);
-                    masterTemp.push(t_parsed); // Adesso passiamo numeri reali a Chart.js
-                    masterHum.push(h_parsed);
+                // Stampa l'ultimo punto archiviato nel pannello log
+                const last = masterLabels.length - 1;
+                if(last >= 0) {
+                    aggiungiRigaLog(masterLabels[last], masterTemp[last].toFixed(1), masterHum[last].toFixed(0), "ARCHIVIO");
                 }
-            });
-
-            // Mostriamo l'ultimo punto arrivato nell'interfaccia di log dell'archivio
-            if(masterLabels.length > 0) {
-                const lastIdx = masterLabels.length - 1;
-                aggiungiRigaLog(masterLabels[lastIdx], masterTemp[lastIdx].toFixed(1), masterHum[lastIdx].toFixed(0), "ARCHIVIO");
+            } else {
+                debugCount.innerText = "0 (Database Storico vuoto)";
             }
-
             aggiornaGrafico();
         });
     </script>
