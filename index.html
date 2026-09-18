@@ -143,18 +143,28 @@
         });
 
         function aggiornaGrafico() {
-            let step = 1;
-            if (vistaCorrente === '7d') step = 10;  // Downsampling per alleggerire la resa visiva
-            if (vistaCorrente === '1m') step = 45;  
+            // Calcola la media dei punti per alleggerire il grafico
+            let chunkSize = 3; // 3 misure = media ogni 30s (per vista 24h)
+            if (vistaCorrente === '7d') chunkSize = 15; // Raggruppamento ottimizzato per la settimana
+            if (vistaCorrente === '1m') chunkSize = 60; // Raggruppamento ottimizzato per il mese
 
             let labelsTarget = [];
             let tempTarget = [];
             let humTarget = [];
 
-            for (let i = 0; i < masterLabels.length; i += step) {
-                labelsTarget.push(masterLabels[i]);
-                tempTarget.push(masterTemp[i]);
-                humTarget.push(masterHum[i]);
+            for (let i = 0; i < masterLabels.length; i += chunkSize) {
+                let chunkTemp = masterTemp.slice(i, i + chunkSize);
+                let chunkHum = masterHum.slice(i, i + chunkSize);
+
+                let avgTemp = chunkTemp.reduce((a, b) => a + b, 0) / chunkTemp.length;
+                let avgHum = chunkHum.reduce((a, b) => a + b, 0) / chunkHum.length;
+
+                let labelIndex = Math.floor(chunkTemp.length / 2);
+                let label = masterLabels[i + labelIndex];
+
+                labelsTarget.push(label);
+                tempTarget.push(parseFloat(avgTemp.toFixed(2)));
+                humTarget.push(parseFloat(avgHum.toFixed(2)));
             }
 
             historyChart.data.labels = [...labelsTarget];
@@ -179,7 +189,6 @@
                     snapshot.forEach((childSnapshot) => {
                         const punto = childSnapshot.val();
                         if (punto && punto.temperatura !== undefined) {
-                            // Se esiste punto.data unisce Data e Ora per i filtri lunghi, altrimenti usa punto.ora
                             const etichettaX = (vistaCorrente !== '24h' && punto.data) ? `${punto.data} ${punto.ora}` : punto.ora;
                             
                             masterLabels.push(etichettaX);
@@ -212,7 +221,7 @@
             document.getElementById('btn-7d').classList.toggle('active', tipo === '7d');
             document.getElementById('btn-1m').classList.toggle('active', tipo === '1m');
 
-            let limite = 8640; // 24 ore (10s interval)
+            let limite = 8640; // 24 ore (intervallo 10s)
             if (tipo === '7d') limite = 60480;   // 7 giorni
             if (tipo === '1m') limite = 259200;  // 30 giorni
 
